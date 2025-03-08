@@ -66,8 +66,7 @@ def calculate_similarity_scores(new_comments, base_comments):
     
     if not new_comments_preprocessed or not base_comments_preprocessed:
         print("Warning: Empty input provided to similarity function.")
-        return torch.tensor([])  # Return empty tensor if no valid input
-    
+        return torch.tensor([])  
     new_embeddings = model.encode(new_comments_preprocessed, convert_to_tensor=True)
     base_embeddings = model.encode(base_comments_preprocessed, convert_to_tensor=True)
     
@@ -77,11 +76,10 @@ def calculate_similarity_scores(new_comments, base_comments):
     if new_embeddings.shape[0] == 0 or base_embeddings.shape[0] == 0:
         print("Error: One of the embeddings is empty!")
         return torch.tensor([])
-    
-    similarity_matrix = calculate_similarity(new_embeddings, base_embeddings)
-    avg_similarities = torch.mean(similarity_matrix, dim=1)  # Mean similarity score
-    
-    return avg_similarities
+
+    similarity_matrix = calculate_similarity(new_embeddings, base_embeddings) 
+    return similarity_matrix 
+
 
 if __name__ == "__main__":
     start_time = datetime.now()

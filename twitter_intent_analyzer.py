@@ -5,16 +5,22 @@ from selenium.webdriver.common.keys import Keys
 from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.common.by import By
 from selenium.webdriver.chrome.options import Options
+from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.support import expected_conditions as EC
+from selenium.webdriver.common.action_chains import ActionChains
 from webdriver_manager.chrome import ChromeDriverManager
+from datetime import datetime
 from cosine_sim import calculate_similarity_scores  # Ensure cosine_sim.py exists
 
-# Intent sentences for similarity matching
-intent_sentences = [
-    "Supabase is an open-source Firebase alternative",
-    "Supabase offers Postgres database with real-time subscriptions",
-    "Supabase authentication supports OAuth, JWT, and social logins",
-    "Supabase storage allows users to manage files and images",
-    "Supabase integrates with Edge Functions for serverless computing"
+# Predefined intent sentences for comparison
+intent_data = [
+    "Looking for alternatives to Firebase",
+    "Need a scalable database solution",
+    "Trying to migrate my backend to Supabase",
+    "Looking for an open-source authentication provider",
+    "What are the benefits of Supabase?",
+    "Best NoSQL database options for my project",
+    "How does Supabase compare to Firebase?"
 ]
 
 # Setup Selenium WebDriver with logged-in Chrome session
@@ -34,7 +40,7 @@ def setup_driver():
     driver = webdriver.Chrome(service=Service(ChromeDriverManager().install()), options=chrome_options)
     return driver
 
-# Scrape tweets dynamically and capture metadata
+# Scrape at least 100 tweets dynamically
 def scrape_tweets_with_metadata(keyword, num_tweets=100):
     driver = setup_driver()
     
@@ -47,63 +53,103 @@ def scrape_tweets_with_metadata(keyword, num_tweets=100):
     driver.get(search_url)
     time.sleep(5)
     
+    divxpath = '//div[@data-testid="cellInnerDiv"]'
+    WebDriverWait(driver, 20).until(EC.presence_of_element_located((By.XPATH, divxpath)))
+    
+    row = driver.find_element(By.XPATH, divxpath)
+    action = ActionChains(driver)
+    
+    x, y = 0, 0  # Iteration controls
     tweets_data = []
-    body = driver.find_element(By.TAG_NAME, 'body')
-
-    scroll_attempts = 0  # To ensure we scrape 100 tweets
-    while len(tweets_data) < num_tweets and scroll_attempts < 50:
-        body.send_keys(Keys.PAGE_DOWN)
-        time.sleep(2)
-        
-        tweet_elements = driver.find_elements(By.XPATH, "//article[@data-testid='tweet']")
-        
-        for elem in tweet_elements:
+    
+    while len(tweets_data) < num_tweets:
+        try:
+            nexts = driver.execute_script("return arguments[0].nextSibling;", row)
+            
             try:
-                # Extract tweet text
-                tweet_text = elem.find_element(By.XPATH, ".//div[@data-testid='tweetText']").text
-                
-                # Extract tweet URL
-                tweet_url = elem.find_element(By.XPATH, ".//a[contains(@href, '/status/')]").get_attribute("href")
-                
-                # Extract timestamp (convert to year)
-                timestamp = elem.find_element(By.TAG_NAME, "time").get_attribute("datetime")
-                tweet_year = timestamp[:4]  # Extracting year (YYYY)
+                action.move_to_element(nexts).perform()
+            except Exception:
+                pass
+            
+            tweet_info = {}
 
-                if tweet_text and tweet_url:  # Ensure valid data
-                    tweets_data.append({
-                        "text": tweet_text,
-                        "url": tweet_url,
-                        "year": tweet_year
-                    })
+            # Extract profile handle and profile link
+            try:
+                profile = row.find_element(By.XPATH, './/div[@data-testid="User-Name"]')
+                tweet_info["Profile Link"] = profile.find_elements(By.XPATH, './/a')[1].get_attribute('href')
+                tweet_info["Profile Handle"] = profile.find_elements(By.XPATH, './/a')[1].text
+            except Exception:
+                pass
 
-                if len(tweets_data) >= num_tweets:
-                    break
+            # Extract tweet text
+            try:
+                tweet_info["Post"] = row.find_element(By.XPATH, ".//div[@data-testid='tweetText']").text
+            except Exception:
+                pass
 
-            except Exception as e:
-                print("Error extracting tweet:", e)
-        
-        scroll_attempts += 1
+            # Extract tweet URL
+            try:
+                tweet_info["DocURL"] = row.find_elements(By.XPATH, './/a[contains(@href,"status")]')[0].get_attribute('href')
+            except Exception:
+                pass
+
+            # Extract timestamp (Date & Time)
+            try:
+                datetime_str = row.find_element(By.XPATH, './/time').get_attribute('datetime')  # Extract full timestamp
+                datetime_obj = datetime.fromisoformat(datetime_str.replace("Z", "+00:00"))  # Convert to datetime object
+                tweet_info["Date"] = datetime_obj.strftime("%Y-%m-%d")  # Format: YYYY-MM-DD
+                tweet_info["Time"] = datetime_obj.strftime ("%H:%M:%S")  # Format: HH:MM:SS
+            except Exception:
+                tweet_info["Date"], tweet_info["Time"] = "", ""  # Fallback in case of error
+
+            if "Post" in tweet_info and "DocURL" in tweet_info:
+                tweets_data.append(tweet_info)
+
+            nexts = driver.execute_script("return arguments[0].nextSibling;", row)
+            row = nexts
+            x += 1
+
+            # Scroll down after every 10 tweets to ensure new ones load
+            if x % 10 == 0:
+                driver.find_element(By.TAG_NAME, "body").send_keys(Keys.PAGE_DOWN)
+                time.sleep(3)
+
+        except Exception:
+            try:
+                driver.find_element(By.TAG_NAME, "body").send_keys(Keys.PAGE_DOWN)
+                time.sleep(2)
+                row = driver.find_element(By.XPATH, divxpath)
+                nexts = driver.execute_script("return arguments[0].nextSibling;", row)
+            except Exception:
+                pass
 
     driver.quit()  # Close driver
     print(f"Scraped {len(tweets_data)} tweets.")
     return tweets_data
 
-# Analyze tweets and generate structured data
+# Analyze tweets by comparing against predefined intent data
 def analyze_tweets(tweets_data):
     results = []
-    tweets_text = [tweet["text"] for tweet in tweets_data]
-    similarity_scores = calculate_similarity_scores(tweets_text, intent_sentences)  # Compute similarity
+    tweets_text = [tweet["Post"] for tweet in tweets_data]
+
+    # Compare each tweet against predefined intents
+    similarity_scores = calculate_similarity_scores(tweets_text, intent_data)  
 
     for i, tweet in enumerate(tweets_data):
+        # Get the highest similarity score for the tweet
+        best_match_index = similarity_scores[i].argmax()
+        best_match_score = similarity_scores[i, best_match_index].item()
+        best_match_intent = intent_data[best_match_index]
+
         results.append({
-            "ticker": "TXG",  # Static or extracted from query context
-            "SentenceT": f"[{tweet['year']}]",  # Year from timestamp
-            "Target sentence": tweet["text"],
-            "upload-da:id": "####",  # Placeholder
-            "Page": i + 1,  # Simulated page number
-            "DocURL": tweet["url"],  # Actual tweet URL
-            "DocTitle": "Twitter Post",  # Generic title
-            "Similarity Score": round(similarity_scores[i].item(), 6)  # Convert tensor to float and round
+            "Profile Handle": tweet.get("Profile Handle", ""),
+            "Profile Link": tweet.get("Profile Link", ""),
+            "DocURL": tweet.get("DocURL", ""),
+            "Date": tweet.get("Date", ""),
+            "Time": tweet.get("Time", ""),
+            "Target Sentence": tweets_text[i],  
+            "Best Matched Intent": best_match_intent,  # Most relevant intent
+            "Similarity Score": round(best_match_score, 6)  # Convert tensor to float and round
         })
 
     df = pd.DataFrame(results)
@@ -115,7 +161,7 @@ if __name__ == "__main__":
     tweets_data = scrape_tweets_with_metadata(keyword, num_tweets=100)
     
     df = analyze_tweets(tweets_data)
-    
+
     # Save CSV file with correct formatting
     csv_filename = "Test_result.csv"
     df.to_csv(csv_filename, index=False)
