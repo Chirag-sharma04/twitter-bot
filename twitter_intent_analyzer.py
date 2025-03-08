@@ -95,13 +95,13 @@ def scrape_tweets_with_metadata(keyword, num_tweets=100):
 
             # Extract timestamp (Date & Time)
             try:
-                datetime_str = row.find_element(By.XPATH, './/time').get_attribute('datetime')  # Extract full timestamp
-                datetime_obj = datetime.fromisoformat(datetime_str.replace("Z", "+00:00"))  # Convert to datetime object
-                tweet_info["Date"] = datetime_obj.strftime("%Y-%m-%d")  # Format: YYYY-MM-DD
-                tweet_info["Time"] = datetime_obj.strftime ("%H:%M:%S")  # Format: HH:MM:SS
-            except Exception:
-                tweet_info["Date"], tweet_info["Time"] = "", ""  # Fallback in case of error
-
+                dt=row.find_element(By.XPATH,'.//time').get_attribute('datetime').split("T")
+                df.at[y,"Date"]=dt[0]
+                df.at[y,"Time"]=dt[1]
+                #print(dt[1])
+            except Exception as e:
+                pass
+            
             if "Post" in tweet_info and "DocURL" in tweet_info:
                 tweets_data.append(tweet_info)
 
