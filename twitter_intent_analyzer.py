@@ -245,7 +245,7 @@ def analyze_replies(replies_data):
 
 if __name__ == "__main__":
     keyword = "Artificial Intelligence"
-    tweets_data = scrape_tweets_with_metadata(keyword, num_tweets=5)
+    tweets_data = scrape_tweets_with_metadata(keyword, num_tweets=100)
     
     # Save tweets data
     tweets_df = analyze_tweets(tweets_data)
